@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	fzf "github.com/junegunn/fzf/src"
 	"gopkg.in/yaml.v3"
 )
 
@@ -186,50 +186,49 @@ func runQuery() {
 }
 
 func runFzf(apps []string) (string, error) {
-	// Start fzf process
-	fzfCmd := exec.Command("fzf",
-		"--height=20",
-		"--reverse",
-		"--prompt=> ",
-		"--info=default",
-		"--no-preview")
+	inputChan := make(chan string)
+	outputChan := make(chan string)
 
-	// Set up pipes
-	stdin, err := fzfCmd.StdinPipe()
-	if err != nil {
-		return "", err
-	}
-
-	stdout, err := fzfCmd.StdoutPipe()
-	if err != nil {
-		return "", err
-	}
-
-	// Start fzf
-	if err := fzfCmd.Start(); err != nil {
-		return "", err
-	}
-
-	// Send application names to fzf
+	// Send applications to fzf
 	go func() {
-		defer stdin.Close()
+		defer close(inputChan)
 		for _, app := range apps {
-			fmt.Fprintln(stdin, app)
+			inputChan <- app
 		}
 	}()
 
-	// Read selected item
-	selectedBytes, err := io.ReadAll(stdout)
+	// Collect selected application
+	var selected string
+	go func() {
+		for s := range outputChan {
+			selected = s
+		}
+	}()
+
+	// Build fzf.Options
+	options, err := fzf.ParseOptions(
+		false, // don't load defaults from environment
+		[]string{"--height=20", "--reverse", "--prompt=> ", "--info=default", "--no-preview"},
+	)
 	if err != nil {
 		return "", err
 	}
 
-	// Wait for fzf to finish
-	if err := fzfCmd.Wait(); err != nil {
+	// Set up input and output channels
+	options.Input = inputChan
+	options.Output = outputChan
+
+	// Run fzf
+	code, err := fzf.Run(options)
+	if err != nil {
 		return "", err
 	}
 
-	return strings.TrimSpace(string(selectedBytes)), nil
+	if code != fzf.ExitOk {
+		return "", fmt.Errorf("fzf exited with code %d", code)
+	}
+
+	return selected, nil
 }
 
 func getExecutableApps() ([]string, error) {

@@ -13,10 +13,6 @@ Inspired by the power of `fzf` and the likeness of `dmenu` and `rofi`.
 - Lightweight and responsive TUI interface
 - No shell script dependencies - pure Go implementation
 
-## Dependencies
-
-- `fzf` - for the fuzzy finder interface
-
 ## Installation
 
 ```bash
