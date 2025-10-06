@@ -9,11 +9,11 @@ build:
 install: build
 	install -d $(BINDIR)
 	install -m 755 fling $(BINDIR)/fling
-	install -m 755 apps.sh $(BINDIR)/fling-apps.sh
 
 clean:
 	rm -f fling
 
 test: build
-	./apps.sh all | head -5
-	@echo "Built successfully. To test interactively, run: echo 'firefox\nchromium\nvim' | fzf"
+	@echo "Built successfully. Testing PATH scanning..."
+	@echo "Found $(shell go run . 2>/dev/null | wc -l) applications in PATH"
+	@echo "To test interactively, run: ./fling"

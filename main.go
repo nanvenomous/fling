@@ -1,51 +1,23 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 )
 
-type AppItem struct {
-	Name      string
-	Command   string
-	Desktop   string
-	IsDesktop bool
-}
-
 func main() {
-	// if len(os.Args) < 2 {
-	// 	fmt.Fprintf(os.Stderr, "Usage: %s <command> [script]\n", os.Args[0])
-	// 	fmt.Fprintf(os.Stderr, "Commands: query\n")
-	// 	os.Exit(1)
-	// }
-
-	// command := os.Args[1]
-
-	// switch command {
-	// case "query":
-	// 	script := "./apps.sh"
-	// 	if len(os.Args) > 2 {
-	// 		script = os.Args[2]
-	// 	}
-	// 	runQuery(script)
-	// default:
-	// 	fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
-	// 	os.Exit(1)
-	// }
-
-	script := "./apps.sh"
-	runQuery(script)
+	runQuery()
 }
 
-func runQuery(script string) {
+func runQuery() {
 	// Get applications list
-	apps, err := getApplications(script)
+	apps, err := getExecutableApps()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error getting applications: %v\n", err)
 		os.Exit(1)
@@ -67,134 +39,114 @@ func runQuery(script string) {
 	launchApplication(selectedApp)
 }
 
-func runFzf(apps []AppItem) (AppItem, error) {
+func runFzf(apps []string) (string, error) {
 	// Start fzf process
 	fzfCmd := exec.Command("fzf",
 		"--height=20",
 		"--reverse",
-		"--prompt=Apps> ",
+		"--prompt=> ",
 		"--info=default",
 		"--no-preview")
 
 	// Set up pipes
 	stdin, err := fzfCmd.StdinPipe()
 	if err != nil {
-		return AppItem{}, err
+		return "", err
 	}
 
 	stdout, err := fzfCmd.StdoutPipe()
 	if err != nil {
-		return AppItem{}, err
+		return "", err
 	}
 
 	// Start fzf
 	if err := fzfCmd.Start(); err != nil {
-		return AppItem{}, err
+		return "", err
 	}
 
 	// Send application names to fzf
 	go func() {
 		defer stdin.Close()
 		for _, app := range apps {
-			fmt.Fprintln(stdin, app.Name)
+			fmt.Fprintln(stdin, app)
 		}
 	}()
 
 	// Read selected item
 	selectedBytes, err := io.ReadAll(stdout)
 	if err != nil {
-		return AppItem{}, err
+		return "", err
 	}
 
 	// Wait for fzf to finish
 	if err := fzfCmd.Wait(); err != nil {
-		return AppItem{}, err
+		return "", err
 	}
 
-	// Find the selected application
-	selectedName := strings.TrimSpace(string(selectedBytes))
-	for _, app := range apps {
-		if app.Name == selectedName {
-			return app, nil
-		}
-	}
-
-	return AppItem{}, fmt.Errorf("selected application not found")
+	return strings.TrimSpace(string(selectedBytes)), nil
 }
 
-func getApplications(script string) ([]AppItem, error) {
-	// Make script path absolute
-	absScript, err := filepath.Abs(script)
-	if err != nil {
-		return nil, err
+func getExecutableApps() ([]string, error) {
+	pathEnv := os.Getenv("PATH")
+	if pathEnv == "" {
+		return nil, fmt.Errorf("PATH environment variable not set")
 	}
 
-	// Run the script to get applications
-	cmd := exec.Command(absScript, "executables")
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to run script: %v", err)
-	}
+	pathDirs := strings.Split(pathEnv, ":")
+	appSet := make(map[string]bool)
+	var apps []string
 
-	// Parse output
-	var apps []AppItem
-	scanner := bufio.NewScanner(strings.NewReader(string(output)))
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
+	for _, dir := range pathDirs {
+		if dir == "" {
 			continue
 		}
 
-		// Check if it's a desktop app (contains |)
-		if strings.Contains(line, "|") {
-			parts := strings.SplitN(line, "|", 3)
-			if len(parts) >= 2 {
-				apps = append(apps, AppItem{
-					Name:      parts[0],
-					Command:   parts[1],
-					Desktop:   parts[2],
-					IsDesktop: true,
-				})
+		// Check if directory exists
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
+
+		// Read directory contents
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue // Skip directories we can't read
+		}
+
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
 			}
-		} else {
-			// Regular executable
-			apps = append(apps, AppItem{
-				Name:      line,
-				Command:   line,
-				IsDesktop: false,
-			})
+
+			name := entry.Name()
+			fullPath := filepath.Join(dir, name)
+
+			// Check if file is executable
+			if isExecutable(fullPath) && !appSet[name] {
+				appSet[name] = true
+				apps = append(apps, name)
+			}
 		}
 	}
 
-	return apps, scanner.Err()
+	// Sort applications alphabetically
+	sort.Strings(apps)
+	return apps, nil
 }
 
-func launchApplication(app AppItem) {
-	var cmd *exec.Cmd
-
-	if app.IsDesktop {
-		// Use the Exec line from .desktop file
-		// Remove field codes like %f, %F, %u, %U
-		execLine := app.Command
-		execLine = strings.ReplaceAll(execLine, " %f", "")
-		execLine = strings.ReplaceAll(execLine, " %F", "")
-		execLine = strings.ReplaceAll(execLine, " %u", "")
-		execLine = strings.ReplaceAll(execLine, " %U", "")
-		execLine = strings.TrimSpace(execLine)
-
-		// Split command and args
-		parts := strings.Fields(execLine)
-		if len(parts) == 0 {
-			fmt.Fprintf(os.Stderr, "Empty command\n")
-			return
-		}
-
-		cmd = exec.Command(parts[0], parts[1:]...)
-	} else {
-		// Regular executable
-		cmd = exec.Command(app.Command)
+func isExecutable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
 	}
+
+	// Check if it's a regular file and has execute permission
+	mode := info.Mode()
+	return mode.IsRegular() && (mode&0111) != 0
+}
+
+func launchApplication(appName string) {
+	// Create command to execute the application
+	cmd := exec.Command(appName)
 
 	// Detach from parent process
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -204,7 +156,7 @@ func launchApplication(app AppItem) {
 	// Start the application
 	err := cmd.Start()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to launch %s: %v\n", app.Name, err)
+		fmt.Fprintf(os.Stderr, "Failed to launch %s: %v\n", appName, err)
 		os.Exit(1)
 	}
 
