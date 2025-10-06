@@ -1,6 +1,9 @@
 # Fling - Fast Application Launcher
 
-A lightweight TUI application launcher for Linux that integrates with i3wm. Uses fzf for fuzzy searching through PATH executables.
+A lightweight TUI application launcher for Linux.
+Inspired by the power of `fzf` and the likeness of `dmenu` and `rofi`.
+
+![fling preview](.rsrc/fling.png)
 
 ## Features
 
