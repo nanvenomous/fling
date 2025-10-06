@@ -1,4 +1,4 @@
-module fling
+module github.com/nanvenomous/fling
 
 go 1.25.1
 
