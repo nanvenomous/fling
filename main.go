@@ -22,10 +22,16 @@ type Config struct {
 	TUIApps []string `yaml:"tui_apps"`
 }
 
+type UsageData struct {
+	Counts map[string]int `yaml:"counts"`
+}
+
 var config *Config
+var usage *UsageData
 
 func main() {
 	loadConfig()
+	loadUsage()
 	runQuery()
 }
 
@@ -88,6 +94,64 @@ func createDefaultConfigFile(configPath string) {
 	os.WriteFile(configPath, data, 0644)
 }
 
+func loadUsage() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		usage = &UsageData{Counts: make(map[string]int)}
+		return
+	}
+
+	usagePath := filepath.Join(configDir, "fling", "usage.yml")
+
+	if _, err := os.Stat(usagePath); os.IsNotExist(err) {
+		usage = &UsageData{Counts: make(map[string]int)}
+		return
+	}
+
+	data, err := os.ReadFile(usagePath)
+	if err != nil {
+		usage = &UsageData{Counts: make(map[string]int)}
+		return
+	}
+
+	usage = &UsageData{}
+	if err := yaml.Unmarshal(data, usage); err != nil {
+		usage = &UsageData{Counts: make(map[string]int)}
+		return
+	}
+
+	if usage.Counts == nil {
+		usage.Counts = make(map[string]int)
+	}
+}
+
+func saveUsage() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return
+	}
+
+	usagePath := filepath.Join(configDir, "fling", "usage.yml")
+	configDir = filepath.Dir(usagePath)
+	os.MkdirAll(configDir, 0755)
+
+	data, err := yaml.Marshal(usage)
+	if err != nil {
+		return
+	}
+
+	os.WriteFile(usagePath, data, 0644)
+}
+
+func recordUsage(appName string) {
+	if usage == nil {
+		return
+	}
+
+	usage.Counts[appName]++
+	saveUsage()
+}
+
 func isTUIApplication(appName string) bool {
 	if config == nil {
 		return false
@@ -116,7 +180,8 @@ func runQuery() {
 		os.Exit(1)
 	}
 
-	// Launch selected application
+	// Record usage and launch selected application
+	recordUsage(selectedApp)
 	launchApplication(selectedApp)
 }
 
@@ -209,8 +274,25 @@ func getExecutableApps() ([]string, error) {
 		}
 	}
 
-	// Sort applications alphabetically
-	sort.Strings(apps)
+	// Sort applications by usage frequency, then alphabetically
+	sort.Slice(apps, func(i, j int) bool {
+		countI := 0
+		countJ := 0
+
+		if usage != nil {
+			countI = usage.Counts[apps[i]]
+			countJ = usage.Counts[apps[j]]
+		}
+
+		// If usage counts are different, sort by usage (most used first)
+		if countI != countJ {
+			return countI > countJ
+		}
+
+		// If usage counts are the same, sort alphabetically
+		return apps[i] < apps[j]
+	})
+
 	return apps, nil
 }
 
