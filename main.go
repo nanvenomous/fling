@@ -1,6 +1,7 @@
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,6 +14,9 @@ import (
 	fzf "github.com/junegunn/fzf/src"
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed version
+var version string
 
 type Config struct {
 	Terminal struct {
@@ -30,6 +34,18 @@ var config *Config
 var usage *UsageData
 
 func main() {
+
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "version", "--version", "-v":
+			fmt.Printf("fling v%s\n", strings.TrimSpace(version))
+			os.Exit(0)
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
+			os.Exit(1)
+		}
+	}
+
 	loadConfig()
 	loadUsage()
 	runQuery()
