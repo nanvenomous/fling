@@ -6,13 +6,94 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"syscall"
+
+	"gopkg.in/yaml.v3"
 )
 
+type Config struct {
+	Terminal struct {
+		Command string   `yaml:"command"`
+		Args    []string `yaml:"args"`
+	} `yaml:"terminal"`
+	TUIApps []string `yaml:"tui_apps"`
+}
+
+var config *Config
+
 func main() {
+	loadConfig()
 	runQuery()
+}
+
+func loadConfig() {
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		config = getDefaultConfig()
+		return
+	}
+
+	configPath := filepath.Join(configDir, "fling", "config.yml")
+
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		config = getDefaultConfig()
+		createDefaultConfigFile(configPath)
+		return
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		config = getDefaultConfig()
+		return
+	}
+
+	config = &Config{}
+	if err := yaml.Unmarshal(data, config); err != nil {
+		config = getDefaultConfig()
+		return
+	}
+}
+
+func getDefaultConfig() *Config {
+	return &Config{
+		Terminal: struct {
+			Command string   `yaml:"command"`
+			Args    []string `yaml:"args"`
+		}{
+			Command: "ghostty",
+			Args:    []string{"-e"},
+		},
+		TUIApps: []string{
+			"nvim",
+			"vim",
+			"nano",
+			"htop",
+			"lazygit",
+		},
+	}
+}
+
+func createDefaultConfigFile(configPath string) {
+	configDir := filepath.Dir(configPath)
+	os.MkdirAll(configDir, 0755)
+
+	data, err := yaml.Marshal(getDefaultConfig())
+	if err != nil {
+		return
+	}
+
+	os.WriteFile(configPath, data, 0644)
+}
+
+func isTUIApplication(appName string) bool {
+	if config == nil {
+		return false
+	}
+
+	return slices.Contains(config.TUIApps, appName)
 }
 
 func runQuery() {
@@ -145,8 +226,16 @@ func isExecutable(path string) bool {
 }
 
 func launchApplication(appName string) {
-	// Create command to execute the application
-	cmd := exec.Command(appName)
+	var cmd *exec.Cmd
+
+	if isTUIApplication(appName) {
+		// Launch in terminal emulator
+		args := append(config.Terminal.Args, appName)
+		cmd = exec.Command(config.Terminal.Command, args...)
+	} else {
+		// Launch directly
+		cmd = exec.Command(appName)
+	}
 
 	// Detach from parent process
 	cmd.SysProcAttr = &syscall.SysProcAttr{
