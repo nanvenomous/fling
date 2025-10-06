@@ -193,12 +193,23 @@ func runQuery() {
 	selectedApp, err := runFzf(apps)
 	if err != nil {
 		// User cancelled or error occurred
+		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	// Record usage and launch selected application
-	recordUsage(selectedApp)
-	launchApplication(selectedApp)
+	fmt.Fprintf(os.Stderr, "DEBUG: Selected app: '%s'\n", selectedApp)
+
+	// Check if it's a one-off command (contains spaces/arguments)
+	if strings.Contains(selectedApp, " ") {
+		fmt.Fprintf(os.Stderr, "DEBUG: Detected one-off command\n")
+		// Don't record usage for one-off commands
+		launchCommand(selectedApp)
+	} else {
+		fmt.Fprintf(os.Stderr, "DEBUG: Regular app launch\n")
+		// Record usage and launch selected application
+		recordUsage(selectedApp)
+		launchApplication(selectedApp)
+	}
 }
 
 func runFzf(apps []string) (string, error) {
@@ -213,18 +224,18 @@ func runFzf(apps []string) (string, error) {
 		}
 	}()
 
-	// Collect selected application
-	var selected string
+	// Collect output (query and selected application)
+	var outputs []string
 	go func() {
 		for s := range outputChan {
-			selected = s
+			outputs = append(outputs, s)
 		}
 	}()
 
 	// Build fzf.Options
 	options, err := fzf.ParseOptions(
 		false, // don't load defaults from environment
-		[]string{"--height=20", "--reverse", "--prompt=> ", "--info=default", "--no-preview"},
+		[]string{"--height=20", "--reverse", "--prompt=> ", "--info=default", "--no-preview", "--print-query"},
 	)
 	if err != nil {
 		return "", err
@@ -240,11 +251,28 @@ func runFzf(apps []string) (string, error) {
 		return "", err
 	}
 
-	if code != fzf.ExitOk {
+	// Handle exit codes - ExitOk (0) or ExitNoMatch (1) are acceptable when we have output
+	if code != fzf.ExitOk && code != fzf.ExitNoMatch {
 		return "", fmt.Errorf("fzf exited with code %d", code)
 	}
 
-	return selected, nil
+	// With --print-query, fzf outputs the query first, then the selection
+	if len(outputs) >= 2 {
+		query := outputs[0]
+		selected := outputs[1]
+
+		// If the selected item is from the list, return it
+		// If the query doesn't match any item, return the query (for one-off commands)
+		if selected != "" {
+			return selected, nil
+		}
+		return query, nil
+	} else if len(outputs) == 1 {
+		// Only query was entered (no selection from list)
+		return outputs[0], nil
+	}
+
+	return "", fmt.Errorf("no output from fzf")
 }
 
 func getExecutableApps() ([]string, error) {
@@ -343,6 +371,50 @@ func launchApplication(appName string) {
 	err := cmd.Start()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to launch %s: %v\n", appName, err)
+		os.Exit(1)
+	}
+
+	// Don't wait for the process to finish
+	go func() {
+		cmd.Wait()
+	}()
+}
+
+func launchCommand(commandLine string) {
+	// Parse the command line into command and arguments
+	parts := strings.Fields(commandLine)
+	if len(parts) == 0 {
+		return
+	}
+
+	command := parts[0]
+	args := parts[1:]
+
+	fmt.Fprintf(os.Stderr, "DEBUG: Launching command: %s with args: %v\n", command, args)
+
+	var cmd *exec.Cmd
+
+	if isTUIApplication(command) {
+		// Launch in terminal emulator with arguments
+		terminalArgs := append(config.Terminal.Args, command)
+		terminalArgs = append(terminalArgs, args...)
+		fmt.Fprintf(os.Stderr, "DEBUG: TUI app, using terminal: %s with args: %v\n", config.Terminal.Command, terminalArgs)
+		cmd = exec.Command(config.Terminal.Command, terminalArgs...)
+	} else {
+		// Launch directly with arguments
+		fmt.Fprintf(os.Stderr, "DEBUG: Direct launch: %s with args: %v\n", command, args)
+		cmd = exec.Command(command, args...)
+	}
+
+	// Detach from parent process
+	cmd.SysProcAttr = &syscall.SysProcAttr{
+		Setpgid: true,
+	}
+
+	// Start the application
+	err := cmd.Start()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to launch %s: %v\n", commandLine, err)
 		os.Exit(1)
 	}
 
