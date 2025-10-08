@@ -7,6 +7,8 @@ tasks:
     desc: "build binary"
     cmds:
       - go build -o ./fling
+      - echo "Generating example config..."
+      - ./fling config > config.example.yml
 
   install:
     desc: "build and add to system /usr/local/bin path (requires superuser priveleges)"

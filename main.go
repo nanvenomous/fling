@@ -40,6 +40,9 @@ func main() {
 		case "version", "--version", "-v":
 			fmt.Printf("fling v%s\n", strings.TrimSpace(version))
 			os.Exit(0)
+		case "config":
+			printDefaultConfig()
+			os.Exit(0)
 		default:
 			fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
 			os.Exit(1)
@@ -85,7 +88,7 @@ func getDefaultConfig() *Config {
 			Command string   `yaml:"command"`
 			Args    []string `yaml:"args"`
 		}{
-			Command: "ghostty",
+			Command: "alacritty",
 			Args:    []string{"-e"},
 		},
 		TUIApps: []string{
@@ -108,6 +111,15 @@ func createDefaultConfigFile(configPath string) {
 	}
 
 	os.WriteFile(configPath, data, 0644)
+}
+
+func printDefaultConfig() {
+	data, err := yaml.Marshal(getDefaultConfig())
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error generating config: %v\n", err)
+		return
+	}
+	fmt.Print(string(data))
 }
 
 func loadUsage() {
