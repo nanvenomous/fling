@@ -47,7 +47,9 @@ Inspired by the power of `fzf` and the likeness of `dmenu` and `rofi`.
 fling
 ```
 
-### i3wm Integration
+# Integration
+
+### i3wm
 
 You should be able to integrate `fling` with most window managers and terminal emulators.
 
@@ -62,6 +64,13 @@ for_window [class="fling"] floating enable, resize set 800 600, move position ce
 This will:
 - Bind `Mod+d` to launch fling in a floating alacritty terminal
 - Set the window to 800x600 pixels and center it on screen
+
+### wayland swaywm
+
+```
+bindsym $mod+f exec footclient --app-id=modal fling
+for_window [app_id="modal"] floating enable, resize set 800 600, move position center
+```
 
 ## Configuration
 a config file will be generated in `~/.config/fling/` the first time you run `fling`
