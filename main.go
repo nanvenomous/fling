@@ -247,7 +247,7 @@ func runFzf(apps []string) (string, error) {
 	// Build fzf.Options
 	options, err := fzf.ParseOptions(
 		false, // don't load defaults from environment
-		[]string{"--height=20", "--reverse", "--prompt=> ", "--info=default", "--no-preview", "--print-query"},
+		[]string{"--reverse", "--prompt=> ", "--info=default", "--no-preview", "--print-query"},
 	)
 	if err != nil {
 		return "", err
